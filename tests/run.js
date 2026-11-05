@@ -83,3 +83,90 @@ test('只回"收到"在有任务时被判模糊确认风险', () => {
 });
 
 console.log(`\n${passed} 个测试通过${process.exitCode ? ' (有失败)' : ''}`);
+
+// ---------- 大模型层测试 (本地 mock, 不连真实 API) ----------
+const { startMockLLM } = require('./mock-llm');
+const { analyzeWithLLM, analyzeImageWithLLM, getConfig } = require('../src/llm');
+
+let llmPassed = 0;
+async function atest(name, fn) {
+  try { await fn(); llmPassed++; console.log(`  ✔ ${name}`); }
+  catch (e) { console.error(`  ✘ ${name}\n    ${e.message}`); process.exitCode = 1; }
+}
+
+function setEnv(port, key) {
+  process.env.ZUITI_LLM_BASE_URL = `http://127.0.0.1:${port}`;
+  process.env.ZUITI_LLM_API_KEY = key || 'test-key';
+  process.env.ZUITI_LLM_MODEL = 'mock-model';
+  delete process.env.ZUITI_VISION_MODEL;
+}
+function clearEnv() {
+  delete process.env.ZUITI_LLM_BASE_URL;
+  delete process.env.ZUITI_LLM_API_KEY;
+  delete process.env.ZUITI_LLM_MODEL;
+  delete process.env.ZUITI_VISION_MODEL;
+}
+
+(async () => {
+  console.log('\n职场嘴替 大模型层测试 (mock)');
+  const good = startMockLLM({ port: 0, mode: 'good' });
+  const bad = startMockLLM({ port: 0, mode: 'badjson' });
+  await Promise.all([
+    new Promise((r) => good.once('listening', r)),
+    new Promise((r) => bad.once('listening', r)),
+  ]);
+  const goodPort = good.address().port;
+  const badPort = bad.address().port;
+  const sample = { text: '顺便把数据整理成表, 周五下班前给我', relation: '直属领导', intent: '确认任务' };
+  try {
+    await atest('LLM 路径返回 source=llm', async () => {
+      setEnv(goodPort);
+      assert.strictEqual(getConfig().configured, true);
+      const r = await analyzeWithLLM(sample);
+      assert.strictEqual(r.source, 'llm');
+      assert.strictEqual(r.replies.length, 3);
+    });
+
+    await atest('LLM 回复必须过确定性风险校验 (埋雷回复被标出)', async () => {
+      setEnv(goodPort);
+      const r = await analyzeWithLLM(sample);
+      const risky = r.replies.find((x) => x.text.includes('没问题'));
+      assert.ok(risky, 'mock 应包含一条埋雷回复');
+      assert.ok(risky.riskNote.includes('风险自检未通过'), `埋雷回复应未通过自检, 实际: ${risky.riskNote}`);
+      const clean = r.replies.filter((x) => !x.text.includes('没问题'));
+      for (const c of clean) assert.ok(c.riskNote.includes('通过确定性风险校验'), `干净回复应通过: ${c.riskNote}`);
+    });
+
+    await atest('LLM 返回坏 JSON 时回退规则引擎', async () => {
+      setEnv(badPort);
+      const r = await analyzeWithLLM(sample);
+      assert.strictEqual(r.source, 'rules');
+      assert.ok(r.llmError && r.llmError.length > 0);
+      assert.strictEqual(r.replies.length, 3);
+    });
+
+    await atest('未配置 Key 时文本走规则引擎, 不抛错', async () => {
+      clearEnv();
+      assert.strictEqual(getConfig().configured, false);
+      const r = await analyzeWithLLM(sample);
+      assert.strictEqual(r.source, 'rules');
+    });
+
+    await atest('视觉 mock 返回 transcript 且 source=llm', async () => {
+      setEnv(goodPort);
+      const r = await analyzeImageWithLLM(Buffer.from('fakepng').toString('base64'), 'image/png', { relation: '直属领导', intent: '确认任务' });
+      assert.strictEqual(r.source, 'llm');
+      assert.ok(typeof r.transcript === 'string' && r.transcript.includes('领导'), `transcript 应含对话, 实际: ${r.transcript}`);
+    });
+
+    await atest('未配置时截图路径老实报错, 不伪造结果', async () => {
+      clearEnv();
+      const r = await analyzeImageWithLLM(Buffer.from('fakepng').toString('base64'), 'image/png', {});
+      assert.strictEqual(r.error, 'vision_not_configured');
+      assert.ok(!r.replies, '不应伪造回复');
+    });
+  } finally {
+    good.close(); bad.close(); clearEnv();
+  }
+  console.log(`\n${llmPassed} 个大模型测试通过${process.exitCode ? ' (有失败)' : ''}`);
+})().catch((e) => { console.error('大模型测试异常:', e); process.exitCode = 1; });

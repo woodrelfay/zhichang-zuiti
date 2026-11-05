@@ -28,7 +28,9 @@
 - **承诺抽取**：`{ 任务, 截止, 是否需要反问确认}`
 - **三版回复**：稳妥版 / 不卑不亢版 / 推进版，每版带风险自检结论，可直接复制发送
 - **千万别这样回**：一条贴近真实脱口而出的反面示例 + 具体坏在哪
-- **离线可用**：当前版本是确定性规则引擎，零依赖、零 API Key、无网络也能跑；`prompts/` 里留了托管版的大模型提示词模板，输出结构与规则引擎完全一致
+- **离线可用**：默认是确定性规则引擎，零依赖、零 API Key、无网络也能跑
+- **大模型模式（v0.2 新增）**：配好 API Key 后走大模型生成（提示词在 `prompts/`，输出结构与规则引擎一致）；**模型给的每条回复仍要过规则引擎的风险校验，模型说"安全"不算数**；调用失败/坏 JSON 自动回退规则引擎，结果带 `source` 徽章标明来源
+- **截图输入（v0.2 新增）**：网页演示支持上传聊天截图，视觉模型一次完成"转录对话 + 分析"；没配 Key 时会明确报错"截图识别需要先配置大模型"，绝不假装识别
 
 ## 快速开始
 
@@ -37,7 +39,7 @@
 ```bash
 git clone <this-repo> && cd zhichang-zuiti
 
-# 跑测试（9 个用例）
+# 跑测试（15 个用例: 引擎 9 + 大模型 mock 6）
 npm test
 
 # 命令行试用
@@ -51,6 +53,56 @@ echo '{"text":"在吗？明天上班先把合同看一下，急","relation":"直
 
 关系可选：`直属领导 | 大领导 | 客户 | HR | 同事`
 意图可选：`争取时间 | 委婉拒绝 | 认错说明 | 汇报进度 | 确认任务 | 请示确认`
+
+CLI 也支持大模型：加 `--llm` 走大模型（未配置自动回退规则引擎并标明），
+加 `--image <截图路径>` 走视觉模型转录+分析（未配置会明确报错、退出码 1）。
+
+## 大模型配置（可选，不配也能用）
+
+通过环境变量接入任何 OpenAI 兼容接口，零代码改动：
+
+| 环境变量 | 说明 |
+|---|---|
+| `ZUITI_LLM_BASE_URL` | 接口地址，如 `https://api.deepseek.com` |
+| `ZUITI_LLM_API_KEY` | 你的 API Key（**不要提交进仓库、不要发聊天里**，用密钥管理工具保存） |
+| `ZUITI_LLM_MODEL` | 文本模型名，如 `deepseek-chat` |
+| `ZUITI_VISION_MODEL` | 视觉模型名（截图识别用），不填则回退用 `ZUITI_LLM_MODEL` |
+
+国内可直接访问的兼容接口（Base URL）：
+
+| 服务 | Base URL |
+|---|---|
+| DeepSeek | `https://api.deepseek.com` |
+| Kimi（Moonshot） | `https://api.moonshot.cn/v1` |
+| 通义千问（DashScope 兼容模式） | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+
+```bash
+export ZUITI_LLM_BASE_URL=https://api.deepseek.com
+export ZUITI_LLM_API_KEY=<你的Key>
+export ZUITI_LLM_MODEL=deepseek-chat
+node src/cli.js --llm --text "在吗？明天上班先把合同看一下，急" --relation 直属领导
+```
+
+> 注：仓库 CI 与本地测试用的是本地 mock 服务（`tests/mock-llm.js`）验证全链路，
+> 真实模型效果以配 Key 后的实测为准。
+
+## 网页演示
+
+```bash
+npm start          # 或 node src/server.js，端口 PORT 环境变量或默认 8788
+# 打开 http://127.0.0.1:8788
+```
+
+页面：输入消息 → 出潜台词/风险/承诺/三版回复卡片（带复制按钮），
+右上角徽章标明本次来源是「大模型」还是「规则引擎」；也可上传聊天截图走视觉分析。
+接口：`POST /api/analyze`、`POST /api/image`、`GET /api/health`（零依赖 Node http）。
+
+## 市场验证
+
+产品做不做下去由一轮 ¥9.9 真人付费测试决定，执行包在
+[`docs/VALIDATION.md`](docs/VALIDATION.md)：招募文案（小红书 2 篇 + 群/朋友圈 1 篇，可直接粘）、
+5 分钟人工交付 SOP、四个决策指标与过关线、隐私红线；每单记录填
+[`docs/tracking.csv`](docs/tracking.csv)。
 
 ### 真实输出示例
 
@@ -83,7 +135,14 @@ zhichang-zuiti/
 ├── src/
 │ ├── analyze.js # 核心引擎: 场景识别 / 潜台词 / 承诺抽取 / 三版回复 / 反面教材
 │ ├── risk.js # 风险规则库: 截止提取、承诺/道歉/谄媚/顶撞检测 (消息与回复共用)
-│ └── cli.js # 命令行 demo (文本报告 / --json / --stdin)
+│ ├── llm.js # 大模型层: OpenAI 兼容接入 + 回复风险复检 + 失败回退规则引擎 + 视觉(截图)路径
+│ ├── server.js # 网页演示服务端 (零依赖 http, /api/analyze /api/image /api/health)
+│ └── cli.js # 命令行 demo (文本报告 / --json / --stdin / --llm / --image)
+├── web/
+│ └── index.html # 网页演示单页 (卡片结果 + 复制按钮 + 来源徽章 + 截图上传)
+├── docs/
+│ ├── VALIDATION.md # ¥9.9 市场验证包: 招募文案 / 交付 SOP / 决策指标 / 过关线
+│ └── tracking.csv # 验证期每单记录表
 ├── prompts/
 │ └── system.md # 托管版 LLM 系统提示词模板 (与规则引擎同输出结构)
 ├── miniprogram/ # 微信小程序骨架 (utils/engine.js 为 src 的打包同逻辑副本)
@@ -91,7 +150,8 @@ zhichang-zuiti/
 │ ├── pages/index/ # 输入 + 关系/意图选择 + 结果卡片 (潜台词/风险/回复/复制按钮)
 │ └── utils/engine.js
 ├── tests/
-│ └── run.js # node:assert 测试, `npm test` 运行
+│ ├── run.js # node:assert 测试 (引擎 9 + 大模型 6), `npm test` 运行
+│ └── mock-llm.js # 本地假装的 OpenAI 兼容服务, 离线验证大模型全链路用
 ├── examples/ # 3 组真实输入与 CLI 生成的输出
 ├── LICENSE # MIT
 └── README.md
@@ -111,8 +171,8 @@ zhichang-zuiti/
 
 ## Roadmap
 
-- [] 截图 OCR 输入（粘截图直接识别聊天内容，省去手打/复制）
-- [] LLM 模式接入（按 `prompts/system.md` 的结构化输出，与规则引擎可切换）
+- [x] 截图输入（v0.2：视觉模型转录+分析，未配置时明确报错；待真实 Key 实测）
+- [x] LLM 模式接入（v0.2：`prompts/system.md` 结构化输出 + 风险复检 + 自动回退；待真实 Key 实测）
 - [] 五大场景的语料扩充与回复 A/B（用真实脱敏案例回归测试）
 - [] 「承诺本」：把抽取出的任务+截止沉淀成个人待办，到期前提醒
 - [] 小程序订阅消息：下班后消息的"明天处理"自动确认卡
