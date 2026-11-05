@@ -9,7 +9,7 @@ const path = require('path');
 const { analyze, RELATIONS, INTENTS, SCENARIO_NAMES } = require('./analyze');
 const risk = require('./risk');
 
-const TIMEOUT_MS = 15000;
+const TIMEOUT_MS = Number(process.env.ZUITI_LLM_TIMEOUT_MS) > 0 ? Number(process.env.ZUITI_LLM_TIMEOUT_MS) : 60000;
 
 const FALLBACK_SYSTEM_PROMPT = [
   '你是一名专为中国 22-28 岁初入职场年轻人服务的「职场沟通风险顾问」。',
