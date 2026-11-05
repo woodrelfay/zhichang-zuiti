@@ -1,0 +1,53 @@
+<view class="page">
+  <view class="hint">把领导/客户发来的消息粘进来。先翻译潜台词、标风险，再给你能直接发的回复。</view>
+
+  <textarea class="input" placeholder="例如: 顺便把上周的数据整理一下, 周五下班前给我" value="{{text}}" bindinput="onTextInput" maxlength="500" />
+
+  <view class="row">
+    <text class="label">对方是</text>
+    <picker mode="selector" range="{{relations}}" value="{{relationIndex}}" bindchange="onRelationChange">
+      <view class="picker">{{relations[relationIndex]}} ▾</view>
+    </picker>
+  </view>
+  <view class="row">
+    <text class="label">我想</text>
+    <picker mode="selector" range="{{intents}}" value="{{intentIndex}}" bindchange="onIntentChange">
+      <view class="picker">{{intents[intentIndex]}} ▾</view>
+    </picker>
+  </view>
+
+  <button class="cta" bindtap="onAnalyze">帮我看看这句怎么回</button>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+
+  <block wx:if="{{result}}">
+    <view class="card">
+      <view class="card-title">🧭 潜台词 · {{result.scenarioName}}</view>
+      <view>{{result.subtext.line}}</view>
+      <view class="muted">{{result.subtext.evidence}}</view>
+    </view>
+
+    <view class="card" wx:if="{{result.risks.length}}">
+      <view class="card-title">⚠️ 风险提示</view>
+      <view wx:for="{{result.risks}}" wx:key="type" class="risk">[{{item.level === 'high' ? '高' : '中'}}] {{item.detail}}</view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">📌 先确认这件事</view>
+      <view>任务: {{result.commitment.task || '本次无新任务'}}</view>
+      <view>截止: {{result.commitment.deadlineText || '对方没给 — 回复里要反问确认'}}</view>
+    </view>
+
+    <view class="card" wx:for="{{result.replies}}" wx:key="label">
+      <view class="card-title">💬 {{item.label}}</view>
+      <view class="reply">{{item.text}}</view>
+      <view class="muted">{{item.riskNote}}</view>
+      <button class="copy" data-text="{{item.text}}" bindtap="onCopy">复制这条</button>
+    </view>
+
+    <view class="card anti">
+      <view class="card-title">🚫 千万别这样回</view>
+      <view class="reply">「{{result.antiExample.text}}」</view>
+      <view class="muted">{{result.antiExample.reason}}</view>
+    </view>
+  </block>
+</view>

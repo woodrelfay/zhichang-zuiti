@@ -1,0 +1,1 @@
+{"description":"职场嘴替 (工作版) — 不是话术生成器, 是职场沟通的风险翻译器: 潜台词 + 风险标注 + 承诺抽取 + 三版安全回复","engines":{"node":">=18"},"license":"MIT","name":"zhichang-zuiti","private":false,"scripts":{"demo":"node src/cli.js --text \"顺便把上周的用户数据整理成表, 周五下班前给我\" --relation 直属领导 --intent 确认任务","test":"node tests/run.js"},"version":"0.1.0"}
